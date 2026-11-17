@@ -31,7 +31,8 @@ final readonly class LockSchedulingMutex implements SchedulingMutex
         return $this->store->exists($this->key($event, $time));
     }
 
-    // Laravel's own key uses only "Hi", which repeats every day; the full UTC minute is unambiguous.
+    // One key per event per minute. The date is part of it, so 03:00 today and 03:00 tomorrow are different keys;
+    // Laravel's own mutex uses hour + minute only and relies on the key expiring in between.
     /** @return non-empty-string */
     private function key(Event $event, \DateTimeInterface $time): string
     {

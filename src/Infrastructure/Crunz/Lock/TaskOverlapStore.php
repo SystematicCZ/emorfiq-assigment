@@ -8,8 +8,6 @@ use Domain\Lock\LockStoreInterface;
 use Symfony\Component\Lock\Key;
 use Symfony\Component\Lock\PersistingStoreInterface;
 
-// One instance per crunz event, passed to preventOverlapping(). crunz uses its own lock key and a fixed TTL,
-// so this store ignores both and uses our per-class key and lockTtl, with the owner token kept in the Symfony Key.
 final readonly class TaskOverlapStore implements PersistingStoreInterface
 {
     /** @param positive-int $ttlSeconds */

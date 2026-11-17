@@ -38,6 +38,7 @@ final class CrunzScheduler implements SchedulerInterface
             ->description($task->description !== '' ? "{$task->taskClass}: {$task->description}" : $task->taskClass);
 
         if ($task->withoutOverlapping) {
+            // crunz accepts a Symfony Lock store here, so our lock is plugged in as one.
             $event->preventOverlapping(new TaskOverlapStore($this->lockStore, 'task:' . $task->taskClass, $task->lockTtl));
         }
 
