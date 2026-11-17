@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use App\Tasks\ExampleTask;
-use Application\Scheduler\PruneExpiredLocksTask;
 use Application\Scheduler\SchedulerInterface;
 use Application\Scheduler\TaskProviderInterface;
 use Domain\Lock\LockFactory;
@@ -41,17 +40,18 @@ function eventFor(string $taskClass): CallbackEvent
     return collect(app(Schedule::class)->events())->first(static fn (LaravelEvent $e) => str_starts_with((string) $e->description, $taskClass));
 }
 
-it('maps attribute-defined tasks onto Laravel callback events and their native features', function (): void {
-    $prune = eventFor(PruneExpiredLocksTask::class);
+it('maps a task definition onto a Laravel callback event and its native features', function (): void {
+    scheduleOnly(TaskFactory::definition(cron: '0 3 * * *', onOneServer: true, timezone: 'Europe/Prague'));
 
-    expect($prune)->toBeInstanceOf(CallbackEvent::class)
-        ->and($prune->expression)->toBe('0 3 * * *')
-        ->and($prune->timezone->getName())->toBe('Europe/Prague')
-        ->and($prune->withoutOverlapping)->toBeTrue()
-        ->and($prune->onOneServer)->toBeTrue()
-        ->and($prune->mutex)->toBeInstanceOf(TaskEventMutex::class)
-        ->and(eventFor(ExampleTask::class)->onOneServer)->toBeFalse()
-        ->and(app(SchedulerInterface::class)->tasks())->toHaveCount(3);
+    $event = eventFor(SpyTask::class);
+
+    expect($event)->toBeInstanceOf(CallbackEvent::class)
+        ->and($event->expression)->toBe('0 3 * * *')
+        ->and($event->timezone->getName())->toBe('Europe/Prague')
+        ->and($event->withoutOverlapping)->toBeTrue()
+        ->and($event->onOneServer)->toBeTrue()
+        ->and($event->mutex)->toBeInstanceOf(TaskEventMutex::class)
+        ->and(app(SchedulerInterface::class)->tasks())->toHaveCount(1);
 });
 
 it('registers one Laravel event per schedule, sharing one lock per class', function (): void {
@@ -136,6 +136,6 @@ it('keeps one scheduler instance when it is resolved before Laravel’s Schedule
     $scheduler = app(SchedulerInterface::class);   // what app:scheduler:run does first
     app(Schedule::class);
 
-    expect($scheduler->tasks())->toHaveCount(3)
+    expect($scheduler->tasks())->toHaveCount(2)
         ->and(app(SchedulerInterface::class))->toBe($scheduler);
 });

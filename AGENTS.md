@@ -20,8 +20,7 @@ final readonly class SendDailyReportTask
 ## Quick start
 
 ```bash
-composer install
-cp .env.example .env && php artisan key:generate
+composer setup                            # composer install, .env, app key and the SQLite file in var/
 
 php artisan schedule:list                 # Laravel lists our tasks ("Has Mutex" = our lock is held)
 php artisan schedule:test                 # Laravel runs one task on demand
@@ -116,7 +115,7 @@ There are three layers, one top-level folder each, and dependencies point **inwa
         │             CronValidator                          (no Laravel – reusable)   │
         │  Clock/     SystemClock (PSR-20)                                             │
         │     ┌─────────────────────────── Application ───────────────────────────┐    │
-        │     │  Scheduler/  TaskRegistry, RegisterSchedule, PruneExpiredLocksTask │    │
+        │     │  Scheduler/  TaskRegistry, RegisterSchedule                        │    │
         │     │              ports: SchedulerInterface (engine),                   │    │
         │     │              TaskProviderInterface, CronValidatorInterface         │    │
         │     │     ┌───────────────────────── Domain ──────────────────────┐      │    │
@@ -143,7 +142,7 @@ src/
     Scheduler/              attribute reader, class finder, cron library adapter
     Clock/                  SystemClock
     Laravel/                everything that imports Illuminate\*
-app/Tasks/                  ExampleTask (two schedules); the lock-housekeeping PruneExpiredLocksTask ships with the module (Application\Scheduler)
+app/Tasks/                  ExampleTask (two schedules)
 ```
 
 **Assumptions about the host.** The host here is a Laravel app, but only one part of the module needs that:
@@ -156,10 +155,11 @@ app/Tasks/                  ExampleTask (two schedules); the lock-housekeeping P
 
 ```
 app/Tasks/            the application's tasks
-bootstrap/            app.php (exception handling only, no routing), providers.php (SchedulerServiceProvider),
+bootstrap/            app.php (exception handling, points Laravel's generated files at var/), providers.php (SchedulerServiceProvider),
                       scheduler-container.php (the PSR-11 container the crunz path uses)
 config/               database.php (SQLite busy_timeout + WAL) and scheduler.php; since Laravel 11 missing config files fall back to framework defaults
-database/             the SQLite file; there are no migrations, because the lock table creates itself on first use
+var/                  not in git; everything generated at runtime: Laravel's storage (app/, framework/, logs/), its bootstrap cache
+                      (bootstrap-cache/) and the SQLite file; there are no migrations, because the lock table creates itself on first use
 src/                  Domain, Application, Infrastructure (crunz's task file and bin/scheduler live in Infrastructure/Crunz)
 tests/                unit, integration, feature
 ```
@@ -234,7 +234,6 @@ interface LockStoreInterface            // the backend port – stores and queri
     public function delete(string $key, string $token): void;                    // only if mine, otherwise nothing
     public function exists(string $key, ?string $token = null): bool;            // anyone's / mine when token given
 }
-interface PrunableLockStoreInterface { public function pruneExpired(): void; }  // optional, for SQL-like stores
 ```
 
 Typical use outside the scheduler:
@@ -387,7 +386,7 @@ final readonly class RedisLockStore implements LockStoreInterface
 }
 ```
 
-Then add it to the `lock stores` dataset (`tests/Datasets/LockStores.php`), so both the store contract and the lock behaviour suites run against it, add a `redis` entry under `locks.stores` in the config, and add a `'redis' => new RedisLockStore(…)` arm to the `match` in `SchedulerServiceProvider`, where the placeholder comment is. Then set `SCHEDULER_LOCK_STORE=redis`. Redis expires keys natively, so it doesn't implement `PrunableLockStoreInterface`, and the prune task and its alias would be dropped for it. Nothing else changes.
+Then add it to the `lock stores` dataset (`tests/Datasets/LockStores.php`), so both the store contract and the lock behaviour suites run against it, add a `redis` entry under `locks.stores` in the config, and add a `'redis' => new RedisLockStore(…)` arm to the `match` in `SchedulerServiceProvider`, where the placeholder comment is. Then set `SCHEDULER_LOCK_STORE=redis`. Redis expires keys natively, so it needs no cleanup of its own. Nothing else changes.
 
 ## 9. Known limitations and trade-offs
 
@@ -396,7 +395,7 @@ Then add it to the `lock stores` dataset (`tests/Datasets/LockStores.php`), so b
 - **`lockTtl` must be longer than the task's longest run.** If a run takes longer, its lock expires and the next run can start alongside it. The late release of the first run is harmless, because the owner token stops it from deleting the new owner's lock (covered by a test). `lockTtl` is also the longest a crashed run blocks the task, so it is a trade-off: long enough for a slow run, short enough for quick recovery.
 - **No force unlock.** Neither the lock nor the store can delete a lock it doesn't own. A stuck lock always clears by itself after its `lockTtl`. In an emergency, an operator deletes the row in `scheduler_locks` by hand.
 - **Clock skew.** Lock expiry uses the app servers' clocks. Use NTP; a skew of a few seconds doesn't matter for TTLs measured in minutes. *Alternative:* take the time from the DB, at the cost of SQL that differs per driver.
-- **One-server slot rows** are never reused. `Application\Scheduler\PruneExpiredLocksTask` deletes them every night. It ships with the module and is registered only when the lock store is prunable (SQL), so a Redis store wouldn't get it; rows that have expired but not been pruned do no harm.
+- **One-server slot rows** are never reused, so expired rows pile up. `PdoLockStore` deletes expired rows itself on a random share of saves (1 %), the way Symfony's PDO lock store does, so there is no cleanup task to schedule. Expired rows that are still there do no harm: `save()` takes them over and `exists()` ignores them.
 - **SQLite** is fine for one server (WAL and `busy_timeout` are set in `config/database.php`). Several servers need a shared DB server (add its driver arm to `PdoLockStore`) or a Redis store.
 
 ## 10. Tests
@@ -407,7 +406,7 @@ The suite covers the parts worth highlighting: the lock, the lock stores, the sc
 |---|---|
 | `tests/Unit/Lock/LockContractTest` | `Lock` + `LockFactory` against **every** store: create without acquiring, acquire, conflict, re-acquire extends, takeover of an expired lock, owner-safe release, refresh, lost lock, invalid input |
 | `tests/Unit/Lock/LockStoreContractTest` | The `LockStoreInterface` contract against **every** store implementation: void writes, `LockConflictedException` on a refused save or refresh, owner re-save, takeover of an expired lock, a same-second refresh is not a conflict, owner-only delete |
-| `tests/Unit/Infrastructure/PdoLockStoreTest` | Pruning deletes only expired rows (checked in the SQLite table) |
+| `tests/Unit/Infrastructure/PdoLockStoreTest` | Garbage collection while saving deletes only expired rows (checked in the SQLite table); with it off, an expired row stays and still doesn't block; the table is created on first use |
 | `tests/Integration/ConcurrentAcquireTest` | 12 real OS processes race for one lock on a shared SQLite file: **exactly one wins** |
 | `tests/Feature/LaravelSchedulerTest` | `LaravelScheduler` and its mutexes against Laravel's real `schedule:run`: tasks mapped onto native features, one event per schedule with one lock per class, run and release, lock held during the run, skip while locked, failure reported with the lock released, onOneServer skip, no release of a lock taken over by a newer run, one scheduler instance |
 | `tests/Unit/Infrastructure/AttributeTaskProviderTest` | `#[ScheduledTask]` → `TaskDefinition`, repeatable attributes, default timezone, invalid timezone; the class finder skips abstract and unloadable classes |

@@ -6,15 +6,18 @@ namespace Infrastructure\Lock;
 
 use Domain\Lock\Exception\LockConflictedException;
 use Domain\Lock\LockStoreInterface;
-use Domain\Lock\PrunableLockStoreInterface;
 use Psr\Clock\ClockInterface;
+use Random\Randomizer;
 
 // Plain PDO on purpose (no Laravel/Doctrine), so the same store works under crunz.
 // Atomicity: every write is ONE conditional statement on the primary key, so the DB lets exactly one competitor win.
 // Expiry uses the app server's clock: servers sharing the store need NTP-synced clocks.
-final class PdoLockStore implements LockStoreInterface, PrunableLockStoreInterface
+// Expired rows never block (save() takes them over); they are only garbage, deleted on a random share of saves.
+final class PdoLockStore implements LockStoreInterface
 {
     public const string DEFAULT_TABLE = 'scheduler_locks';
+
+    public const float DEFAULT_GC_PROBABILITY = 0.01;
 
     private readonly string $table;
 
@@ -27,7 +30,12 @@ final class PdoLockStore implements LockStoreInterface, PrunableLockStoreInterfa
         private readonly ClockInterface $clock,
         string $table = self::DEFAULT_TABLE,
         private readonly bool $autoSetup = true,
+        private readonly float $gcProbability = self::DEFAULT_GC_PROBABILITY,
     ) {
+        if ($gcProbability < 0.0 || $gcProbability > 1.0) {
+            throw new \InvalidArgumentException(sprintf('Lock GC probability must be between 0 and 1, %s given.', $gcProbability));
+        }
+
         if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $table) !== 1) {
             throw new \InvalidArgumentException(sprintf('Invalid lock table name "%s".', $table));
         }
@@ -55,10 +63,18 @@ final class PdoLockStore implements LockStoreInterface, PrunableLockStoreInterfa
         $now = $this->now();
         $expiresAt = $now + $ttlSeconds;
 
-        if ($this->insertIfAbsent($key, $token, $expiresAt)) {
-            return;
+        if (!$this->insertIfAbsent($key, $token, $expiresAt)) {
+            $this->takeOver($key, $token, $expiresAt, $now);
         }
 
+        // Like Symfony's PDO lock store: no cleanup job, the store deletes expired rows on a random share of saves.
+        if (new Randomizer()->getFloat(0, 1) < $this->gcProbability) {
+            $this->prune($now);
+        }
+    }
+
+    private function takeOver(string $key, string $token, int $expiresAt, int $now): void
+    {
         // Row exists – write it only if it is already ours (re-acquire) or expired (abandoned by a crashed owner).
         $stmt = $this->pdo->prepare(
             "UPDATE {$this->table} SET token = :token, expires_at = :expires_at
@@ -109,11 +125,9 @@ final class PdoLockStore implements LockStoreInterface, PrunableLockStoreInterfa
         return $stmt->fetchColumn() !== false;
     }
 
-    public function pruneExpired(): void
+    private function prune(int $now): void
     {
-        $this->ensureSetUp();
-
-        $this->pdo->prepare("DELETE FROM {$this->table} WHERE expires_at <= :now")->execute(['now' => $this->now()]);
+        $this->pdo->prepare("DELETE FROM {$this->table} WHERE expires_at <= :now")->execute(['now' => $now]);
     }
 
     private function ensureSetUp(): void

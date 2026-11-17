@@ -177,21 +177,6 @@ it('refuses to refresh a lock that is not acquired', function (Closure $store, b
     $lock->refresh();
 })->with('lock stores')->with(['never acquired' => false, 'released' => true])->throws(LogicException::class, 'not acquired');
 
-it('never prunes a valid lock', function (Closure $store): void {
-    $clock = new MutableClock();
-    $storeInstance = $store($clock);
-    $locks = new LockFactory($storeInstance, $clock);
-
-    $locks->createLock('short', 10)->acquire();
-    $long = $locks->createLock('long', 1000);
-    $long->acquire();
-    $clock->advance(20);
-
-    $storeInstance->pruneExpired();
-
-    expect($long->isAcquired())->toBeTrue();
-})->with('lock stores');
-
 it('rejects invalid arguments', function (string $key, int $ttl): void {
     (new LockFactory(new InMemoryLockStore(new MutableClock()), new MutableClock()))->createLock($key, $ttl);
 })->with([

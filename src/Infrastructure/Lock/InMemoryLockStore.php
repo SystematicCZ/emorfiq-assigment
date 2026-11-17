@@ -6,11 +6,10 @@ namespace Infrastructure\Lock;
 
 use Domain\Lock\Exception\LockConflictedException;
 use Domain\Lock\LockStoreInterface;
-use Domain\Lock\PrunableLockStoreInterface;
 use Psr\Clock\ClockInterface;
 
 // Process-local: for tests only. It does NOT protect against other processes or servers.
-final class InMemoryLockStore implements LockStoreInterface, PrunableLockStoreInterface
+final class InMemoryLockStore implements LockStoreInterface
 {
     /** @var array<string, array{token: string, expiresAt: int}> */
     private array $locks = [];
@@ -49,12 +48,6 @@ final class InMemoryLockStore implements LockStoreInterface, PrunableLockStoreIn
         return isset($this->locks[$key])
             && $this->locks[$key]['expiresAt'] > $this->now()
             && ($token === null || $this->locks[$key]['token'] === $token);
-    }
-
-    public function pruneExpired(): void
-    {
-        $now = $this->now();
-        $this->locks = array_filter($this->locks, static fn (array $lock): bool => $lock['expiresAt'] > $now);
     }
 
     private function now(): int

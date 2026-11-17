@@ -2,7 +2,6 @@
 
 ## Předpoklady
 - Aplikace používá Laravel jako runtime a vstupní body (artisan, kontejner, konfigurace).
-- Plánovač Laravelu není samostatná knihovna, ale součást frameworku. Implementace přes Laravel proto funguje jen v aplikaci běžící na Laravelu (potřebuje jeho kontejner a konzoli). Crunz je samostatná knihovna, a jeho implementace proto potřebuje jen PSR-11 kontejner, který aplikace poskytne v `bootstrap/scheduler-container.php`.
 
 ## Implementace
 - Doménová vrstva definuje kontrakty a value objekty. Je zcela nezávislá na frameworku, na kterém aplikace běží.
@@ -11,7 +10,7 @@
 
 ## Struktura projektu
 ```
-src/Domain          kontrakty a value objekty, zámek (Lock, LockFactory, LockStoreInterface)
+src/Domain          kontrakty a value objekty, mutex (Lock, LockFactory, LockStoreInterface)
 src/Application     registr tasků, RegisterSchedule, porty (SchedulerInterface, …)
 src/Infrastructure  Laravel bridge, adaptér Crunz, úložiště mutex (SQLite přes PDO), čtení atributů
 app/Tasks           tasky aplikace
@@ -23,7 +22,7 @@ app/Tasks           tasky aplikace
 Laravel používá pro mutex cache s TTL 24 h. Spadlý proces tak může zablokovat task až na den a pozdní uvolnění může smazat cizí zámek. Navržený mutex proto:
 - má **token vlastníka**, takže obnovit nebo uvolnit ho může jen ten, kdo ho získal,
 - má **TTL nastavitelné pro každý task** (`lockTtl`): po pádu procesu je task blokovaný jen po tuto dobu,
-- zapisuje do úložiště **jednou atomickou operací**, což ověřuje test, v němž o zámek soupeří 12 procesů,
+- zapisuje do úložiště **jednou atomickou operací**, což ověřuje test, v němž o mutex soupeří 12 procesů,
 - používá **vyměnitelné úložiště** (`LockStoreInterface`). Teď je to SQLite, Redis by byla jedna další třída.
 
 Do Laravelu se mutex zapojuje přes jeho rozšiřovací body: `preventOverlapsUsing()` (`TaskEventMutex`) a binding `SchedulingMutex` (`onOneServer`).
@@ -60,7 +59,7 @@ if ($task->onOneServer) {
 
 ## Spuštění a kontrola
 ```bash
-composer install && cp .env.example .env && php artisan key:generate
+composer setup                # composer install, .env, klíč aplikace a soubor SQLite ve var/
 php artisan schedule:work     # lokálně každou minutu spouští tasky, které jsou na řadě
 php artisan schedule:list     # přehled tasků
 composer check                # Pint (PSR-12), PHPStan level 10, testy

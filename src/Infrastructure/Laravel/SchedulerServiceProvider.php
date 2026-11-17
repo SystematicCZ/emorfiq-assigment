@@ -5,14 +5,12 @@ declare(strict_types=1);
 namespace Infrastructure\Laravel;
 
 use Application\Scheduler\CronValidatorInterface;
-use Application\Scheduler\PruneExpiredLocksTask;
 use Application\Scheduler\RegisterSchedule;
 use Application\Scheduler\SchedulerInterface;
 use Application\Scheduler\TaskProviderInterface;
 use Domain\Lock\LockFactory;
 use Domain\Lock\LockFactoryInterface;
 use Domain\Lock\LockStoreInterface;
-use Domain\Lock\PrunableLockStoreInterface;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Console\Scheduling\SchedulingMutex;
 use Illuminate\Contracts\Config\Repository;
@@ -51,8 +49,6 @@ final class SchedulerServiceProvider extends ServiceProvider
             // 'redis' => new RedisLockStore(...), – future stores are selected here
             default => throw new \InvalidArgumentException(sprintf('Unknown scheduler lock store "%s".', $store)),
         });
-        // Only SQL-like stores need pruning; a store with native expiry (Redis) gets neither this alias nor the prune task.
-        $this->app->alias(LockStoreInterface::class, PrunableLockStoreInterface::class);
 
         $this->app->singleton(TaskProviderInterface::class, static fn (Application $app): AttributeTaskProvider => new AttributeTaskProvider(
             self::taskClasses($app),
@@ -85,13 +81,7 @@ final class SchedulerServiceProvider extends ServiceProvider
     private static function taskClasses(Application $app): array
     {
         // Laravel-style convention directory, like app/Console/Commands or app/Listeners.
-        $classes = iterator_to_array(new DirectoryClassFinder($app->path('Tasks'), $app->getNamespace() . 'Tasks'), false);
-
-        if ($app->make(LockStoreInterface::class) instanceof PrunableLockStoreInterface) {
-            $classes[] = PruneExpiredLocksTask::class;
-        }
-
-        return $classes;
+        return iterator_to_array(new DirectoryClassFinder($app->path('Tasks'), $app->getNamespace() . 'Tasks'), false);
     }
 
     private static function config(Application $app): Repository
