@@ -25,8 +25,6 @@ Laravel používá pro mutex cache s TTL 24 h. Spadlý proces tak může zabloko
 - zapisuje do úložiště **jednou atomickou operací**, což ověřuje test, v němž o mutex soupeří 12 procesů,
 - používá **vyměnitelné úložiště** (`LockStoreInterface`). Teď je to SQLite, Redis by byla jedna další třída.
 
-Do Laravelu se mutex zapojuje přes jeho rozšiřovací body: `preventOverlapsUsing()` (`TaskEventMutex`) a binding `SchedulingMutex` (`onOneServer`).
-
 ### Konfigurace
 Přepínání konkrétní implementace probíhá změnou `'engine' => 'laravel'` v `config/scheduler.php`.
 
