@@ -42,7 +42,7 @@ Tasky se definují ve složce `app/Tasks`. Task je libovolná třída s metodou 
 final readonly class ExampleTask { public function __invoke(): void { /* … */ } }
 ```
 
-Registrace tasku pak probíhá v konkrétní implementaci `SchedulerInterface`. V případě Laravelu se `TaskDefinition` převede na jeho nativní funkce:
+Registrace tasku pak probíhá v konkrétní implementaci `SchedulerInterface`.
 
 ```php
 $event = ($this->schedule)()->call($task->taskClass)   // Laravel kontejner vytvoří task a zavolá __invoke()
