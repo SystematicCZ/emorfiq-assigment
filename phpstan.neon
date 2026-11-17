@@ -1,0 +1,15 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 10
+    # LockFactory and TaskRegistry validate their phpdoc-typed input (non-empty-string, positive-int) at runtime on purpose.
+    treatPhpDocTypesAsCertain: false
+    paths:
+        - src
+        - app
+    excludePaths:
+        # crunz (and the symfony/lock it brings) is only suggested, not installed: these classes need it.
+        - src/Infrastructure/Crunz/CrunzScheduler.php
+        - src/Infrastructure/Crunz/Lock/TaskOverlapStore.php
+        - src/Infrastructure/Crunz/tasks

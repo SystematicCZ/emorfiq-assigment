@@ -1,0 +1,24 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Infrastructure\Crunz\Console\InvokeTaskCommand;
+use Psr\Container\ContainerInterface;
+use Symfony\Component\Console\Application;
+
+// The project root is the nearest parent directory with vendor/autoload.php (as PHPUnit's and Pest's bin scripts find it).
+for ($root = __DIR__; !is_file($root . '/vendor/autoload.php'); $root = dirname($root)) {
+    if ($root === dirname($root)) {
+        throw new RuntimeException('vendor/autoload.php not found above ' . __DIR__);
+    }
+}
+
+require $root . '/vendor/autoload.php';
+
+/** @var ContainerInterface $container */
+$container = require $root . '/bootstrap/scheduler-container.php';
+
+$application = new Application('scheduler');
+$application->addCommand(new InvokeTaskCommand($container));
+exit($application->run());
