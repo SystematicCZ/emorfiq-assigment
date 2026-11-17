@@ -1,6 +1,6 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "marek/scheduler-abstraction",
+    "name": "systematiccz/emorfiq-assigment",
     "type": "project",
     "description": "Library-independent Scheduler + Mutex abstraction with a Laravel 12 adapter.",
     "keywords": [
@@ -41,8 +41,7 @@
     "scripts": {
         "setup": [
             "composer install",
-            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
-            "@php artisan key:generate",
+            "@php -r \"file_exists('.env') || (copy('.env.example', '.env') && passthru(PHP_BINARY . ' artisan key:generate --ansi'));\"",
             "@php -r \"file_exists('var/database.sqlite') || touch('var/database.sqlite');\""
         ],
         "test": [

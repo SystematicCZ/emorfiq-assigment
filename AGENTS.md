@@ -27,6 +27,13 @@ php artisan schedule:test                 # Laravel runs one task on demand
 php artisan schedule:work                 # local dev: run the scheduler every minute in the foreground
 ```
 
+The project needs PHP 8.5. Without it locally, the same commands run in Docker (`Dockerfile` is `php:8.5-cli` plus Composer; `compose.yaml` mounts the project):
+
+```bash
+docker compose up                         # composer setup, lists the tasks, then runs schedule:work
+docker compose run --rm app composer check
+```
+
 Production crontab, which stays the same if the engine changes:
 
 ```cron

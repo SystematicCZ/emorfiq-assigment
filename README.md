@@ -28,7 +28,7 @@ Laravel používá pro mutex cache s TTL 24 h. Spadlý proces tak může zabloko
 Do Laravelu se mutex zapojuje přes jeho rozšiřovací body: `preventOverlapsUsing()` (`TaskEventMutex`) a binding `SchedulingMutex` (`onOneServer`).
 
 ### Konfigurace
-Přepínání konkrétní implementace probíhá změnou `'engine' => 'laravel'` v `config/scheduler.php` (hodnotu by šlo číst i z proměnné prostředí).
+Přepínání konkrétní implementace probíhá změnou `'engine' => 'laravel'` v `config/scheduler.php`.
 
 `SchedulerServiceProvider` je místo, kde framework načítá a registruje objekty pro zvolenou implementaci.
 
@@ -63,4 +63,10 @@ composer setup                # composer install, .env, klíč aplikace a soubor
 php artisan schedule:work     # lokálně každou minutu spouští tasky, které jsou na řadě
 php artisan schedule:list     # přehled tasků
 composer check                # Pint (PSR-12), PHPStan level 10, testy
+```
+
+Lze spustit v Dockeru:
+```bash
+docker compose up                                      # composer setup, výpis tasků a schedule:work
+docker compose run --rm app ...
 ```
