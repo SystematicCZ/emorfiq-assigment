@@ -1,0 +1,6 @@
+services:
+  app:
+    build: .
+    volumes:
+      - .:/app
+    command: sh -c "composer setup && php artisan schedule:list && php artisan schedule:work"
