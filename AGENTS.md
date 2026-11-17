@@ -300,11 +300,10 @@ final readonly class RegisterSchedule { __invoke(SchedulerInterface $engine): vo
 
 | Key | Default | Meaning |
 |---|---|---|
-| `timezone` | `env('SCHEDULER_TIMEZONE')` → `app.timezone` | Timezone for tasks that don't set one |
-| `engine` | `env('SCHEDULER_ENGINE', 'laravel')` | Which scheduling engine runs the tasks: `laravel` or `crunz`. The provider binds the matching `SchedulerInterface` and its framework hooks. `crunz` without the package fails with "composer require crunzphp/crunz", and an unknown name fails clearly. |
-| `locks.store` | `env('SCHEDULER_LOCK_STORE', 'database')` | Which lock store to use, one of the keys under `locks.stores` (same shape as Laravel's `config/cache.php`). Only `database` is implemented; a future `redis` store would be added here. An unknown name fails with a clear error. |
+| `timezone` | `null` → `app.timezone` | Timezone for tasks that don't set one |
+| `engine` | `laravel` | Which scheduling engine runs the tasks: `laravel` or `crunz`. The provider binds the matching `SchedulerInterface` and its framework hooks. `crunz` without the package fails with "composer require crunzphp/crunz", and an unknown name fails clearly. |
+| `locks.store` | `database` | Which lock store to use, one of the keys under `locks.stores` (same shape as Laravel's `config/cache.php`). Only `database` is implemented; a future `redis` store would be added here. An unknown name fails with a clear error. |
 | `locks.stores.database.table` | `scheduler_locks` | |
-| `locks.stores.database.auto_setup` | `env('SCHEDULER_LOCK_AUTO_SETUP', true)` | Create the lock table on first use (`CREATE TABLE IF NOT EXISTS`, once per process), like Symfony Messenger's Doctrine transport `auto_setup`. The table is not part of the app's migrations. Set it to `false` where the app's DB user may not run DDL, and call `PdoLockStore::setup()` from a deploy step instead. |
 
 **Task discovery follows Laravel's convention.** Tasks live in `app/Tasks`, the same way commands live in `app/Console/Commands` and listeners in `app/Listeners`, and the directory is not configurable. Like Laravel's own discovery, `DirectoryClassFinder` reflects each class there and skips files that can't be loaded (a missing parent class, a parse error) instead of breaking the scan. Symfony instead scans all of `src/` at container compile time (`registerAttributeForAutoconfiguration` → a `scheduler.task` tag → a compiler pass building `RecurringMessage`s) and caches the result. We rebuild the schedule on every `schedule:run`, so scanning only a dedicated folder keeps that cheap. A Symfony adapter would use Symfony's mechanism, and the attribute would stay the same.
 
@@ -336,7 +335,7 @@ There is one task source, bound as `TaskProviderInterface` (the attribute reader
 
 ## 7. Switching to crunz
 
-The adapter is prepared as **shells**: signatures only, with method bodies that throw `LogicException('Not implemented yet.')`. The exceptions are `CrunzScheduler::schedule()`, which shows how a task is registered with crunz, the crunz task file, and the invoke command with `bin/scheduler`, which need nothing from crunz. Checked against crunz 3.9 with `SCHEDULER_ENGINE=crunz`: the task file builds a real `Crunz\Schedule` through the PSR-11 container file, with one event per schedule running `php src/Infrastructure/Crunz/bin/scheduler app:scheduler:invoke '<TaskClass>'`. crunz isn't installed; it is listed under `suggest` in `composer.json`, together with the `symfony/lock` it brings. The shells were checked against crunz 3.9 and `symfony/lock`: they load and implement the interfaces.
+The adapter is prepared as **shells**: signatures only, with method bodies that throw `LogicException('Not implemented yet.')`. The exceptions are `CrunzScheduler::schedule()`, which shows how a task is registered with crunz, the crunz task file, and the invoke command with `bin/scheduler`, which need nothing from crunz. Checked against crunz 3.9 with `scheduler.engine` set to `crunz`: the task file builds a real `Crunz\Schedule` through the PSR-11 container file, with one event per schedule running `php src/Infrastructure/Crunz/bin/scheduler app:scheduler:invoke '<TaskClass>'`. crunz isn't installed; it is listed under `suggest` in `composer.json`, together with the `symfony/lock` it brings. The shells were checked against crunz 3.9 and `symfony/lock`: they load and implement the interfaces.
 
 | File | Role |
 |---|---|
@@ -353,9 +352,9 @@ In this Laravel host, the provider already has both engines wired, selected by `
 Switching, once the crunz classes are finished:
 1. `composer require crunzphp/crunz`
 2. add `crunz.yml` (`vendor/bin/crunz publish:config`; `source: src/Infrastructure/Crunz/tasks`, `suffix: Tasks.php`)
-3. set `SCHEDULER_ENGINE=crunz` in `.env`
+3. set `'engine' => 'crunz'` in `config/scheduler.php`
 
-No PHP file changes, and the crontab line stays `php artisan app:scheduler:run`: `runDue()` now starts crunz.
+Apart from that one config value, no PHP file changes, and the crontab line stays `php artisan app:scheduler:run`: `runDue()` now starts crunz.
 
 Nothing in `Infrastructure\Crunz` (including its task file and `bin/scheduler`) uses `Illuminate` or `Infrastructure\Laravel`.
 
@@ -386,7 +385,7 @@ final readonly class RedisLockStore implements LockStoreInterface
 }
 ```
 
-Then add it to the `lock stores` dataset (`tests/Datasets/LockStores.php`), so both the store contract and the lock behaviour suites run against it, add a `redis` entry under `locks.stores` in the config, and add a `'redis' => new RedisLockStore(…)` arm to the `match` in `SchedulerServiceProvider`, where the placeholder comment is. Then set `SCHEDULER_LOCK_STORE=redis`. Redis expires keys natively, so it needs no cleanup of its own. Nothing else changes.
+Then add it to the `lock stores` dataset (`tests/Datasets/LockStores.php`), so both the store contract and the lock behaviour suites run against it, add a `redis` entry under `locks.stores` in the config, and add a `'redis' => new RedisLockStore(…)` arm to the `match` in `SchedulerServiceProvider`, where the placeholder comment is. Then set `locks.store` to `redis` (any of these values could come from an env variable). Redis expires keys natively, so it needs no cleanup of its own. Nothing else changes.
 
 ## 9. Known limitations and trade-offs
 

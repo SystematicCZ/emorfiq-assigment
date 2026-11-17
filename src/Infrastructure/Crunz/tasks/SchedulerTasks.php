@@ -24,7 +24,7 @@ $container = require $root . '/bootstrap/scheduler-container.php';
 
 $scheduler = $container->get(SchedulerInterface::class);
 if (!$scheduler instanceof CrunzScheduler) {
-    throw new LogicException('This crunz task file is used by the crunz engine only; set SCHEDULER_ENGINE=crunz.');
+    throw new LogicException('This crunz task file is used by the crunz engine only; set scheduler.engine to "crunz".');
 }
 
 $registerSchedule = $container->get(RegisterSchedule::class);

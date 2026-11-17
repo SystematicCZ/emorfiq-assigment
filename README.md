@@ -28,7 +28,7 @@ Laravel používá pro mutex cache s TTL 24 h. Spadlý proces tak může zabloko
 Do Laravelu se mutex zapojuje přes jeho rozšiřovací body: `preventOverlapsUsing()` (`TaskEventMutex`) a binding `SchedulingMutex` (`onOneServer`).
 
 ### Konfigurace
-Přepínání konkrétní implementace probíhá změnou `'engine' => env('SCHEDULER_ENGINE', 'laravel')` v `config/scheduler.php`.
+Přepínání konkrétní implementace probíhá změnou `'engine' => 'laravel'` v `config/scheduler.php` (hodnotu by šlo číst i z proměnné prostředí).
 
 `SchedulerServiceProvider` je místo, kde framework načítá a registruje objekty pro zvolenou implementaci.
 

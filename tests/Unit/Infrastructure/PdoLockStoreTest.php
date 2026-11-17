@@ -48,7 +48,3 @@ it('creates its table on first use', function (): void {
 
     expect($store->exists('k', 'A'))->toBeTrue();
 });
-
-it('leaves the schema alone when auto setup is off', function (): void {
-    (new PdoLockStore(new PDO('sqlite::memory:'), new MutableClock(), autoSetup: false))->save('k', 'A', 60);
-})->throws(PDOException::class, 'no such table');

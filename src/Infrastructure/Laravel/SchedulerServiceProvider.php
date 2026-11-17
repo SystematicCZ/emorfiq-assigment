@@ -44,7 +44,6 @@ final class SchedulerServiceProvider extends ServiceProvider
                 $app->make(DatabaseManager::class)->connection(LockConnection::name(self::config($app)))->getPdo(),
                 $app->make(ClockInterface::class),
                 self::config($app)->string('scheduler.locks.stores.database.table'),
-                self::config($app)->boolean('scheduler.locks.stores.database.auto_setup'),
             ),
             // 'redis' => new RedisLockStore(...), – future stores are selected here
             default => throw new \InvalidArgumentException(sprintf('Unknown scheduler lock store "%s".', $store)),
@@ -110,7 +109,7 @@ final class SchedulerServiceProvider extends ServiceProvider
     private function registerCrunzEngine(): void
     {
         if (!class_exists(\Crunz\Schedule::class)) {
-            throw new \LogicException('SCHEDULER_ENGINE=crunz needs the crunz package: composer require crunzphp/crunz');
+            throw new \LogicException('The crunz scheduler engine needs the crunz package: composer require crunzphp/crunz');
         }
 
         $this->app->singleton(\Crunz\Schedule::class);

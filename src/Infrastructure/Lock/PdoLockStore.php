@@ -23,13 +23,11 @@ final class PdoLockStore implements LockStoreInterface
 
     private bool $isSetUp = false;
 
-    // $autoSetup creates the table on first use (like Symfony Messenger's Doctrine transport); turn it off where
-    // the app's DB user may not run DDL and call setup() from a deploy step instead.
+    // The table is created on first use (like auto_setup in Symfony Messenger's Doctrine transport), not by a migration.
     public function __construct(
         private readonly \PDO $pdo,
         private readonly ClockInterface $clock,
         string $table = self::DEFAULT_TABLE,
-        private readonly bool $autoSetup = true,
         private readonly float $gcProbability = self::DEFAULT_GC_PROBABILITY,
     ) {
         if ($gcProbability < 0.0 || $gcProbability > 1.0) {
@@ -132,7 +130,7 @@ final class PdoLockStore implements LockStoreInterface
 
     private function ensureSetUp(): void
     {
-        if ($this->autoSetup && !$this->isSetUp) {
+        if (!$this->isSetUp) {
             $this->setup();
         }
     }
