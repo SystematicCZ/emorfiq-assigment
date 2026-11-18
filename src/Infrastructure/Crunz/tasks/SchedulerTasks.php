@@ -10,17 +10,11 @@ use Application\Scheduler\SchedulerInterface;
 use Infrastructure\Crunz\CrunzScheduler;
 use Psr\Container\ContainerInterface;
 
-// The project root is the nearest parent directory with vendor/autoload.php (as PHPUnit's and Pest's bin scripts find it).
-for ($root = __DIR__; !is_file($root . '/vendor/autoload.php'); $root = dirname($root)) {
-    if ($root === dirname($root)) {
-        throw new RuntimeException('vendor/autoload.php not found above ' . __DIR__);
-    }
-}
-
-require_once $root . '/vendor/autoload.php';
-
+// crunz loads this file in its own process, outside the application, so nothing is booted here yet.
+// To build the schedule (and later the tasks) it needs the application's PSR-11 container;
+// how the host application hands it over is left open in this sketch.
 /** @var ContainerInterface $container */
-$container = require $root . '/bootstrap/scheduler-container.php';
+$container = throw new LogicException('Not implemented yet: obtain the application\'s PSR-11 container.');
 
 $scheduler = $container->get(SchedulerInterface::class);
 if (!$scheduler instanceof CrunzScheduler) {

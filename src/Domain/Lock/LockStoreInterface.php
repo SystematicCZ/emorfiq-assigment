@@ -6,8 +6,8 @@ namespace Domain\Lock;
 
 use Domain\Lock\Exception\LockConflictedException;
 
-// Each write must be ONE atomic operation in the backend ("write only if free, expired or already mine").
-// exists() + save() as two steps would let two processes both see "free" and both save.
+// The backend must decide and write in one step ("write only if free, expired or already mine"), never read and then write:
+// exists() followed by save() would let two processes both see "free" and both save.
 interface LockStoreInterface
 {
     /**

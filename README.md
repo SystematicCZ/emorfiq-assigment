@@ -5,14 +5,14 @@
 
 ## Implementace
 - Doménová vrstva definuje kontrakty a value objekty. Je zcela nezávislá na frameworku, na kterém aplikace běží.
-- Konfigurace probíhá přes Laravel. Aplikace by ale mohla běžet i na Symfony: změnil by se pouze způsob, jakým se jednotlivé třídy registrují (bundle místo service provideru). Doména ani tasky by se neměnily.
-- Je naznačeno, jak by mohla vypadat implementace Crunz. Registrace tasků je hotová a ověřená proti crunz 3.9, zbytek jsou kostry a v současném stavu není funkční.
+- Konfigurace probíhá přes Laravel.
+- Je naznačeno, jak by mohla vypadat implementace Crunz. Jde pouze o kostru, která v současném stavu není funkční.
 
 ## Struktura projektu
 ```
 src/Domain          kontrakty a value objekty, mutex (Lock, LockFactory, LockStoreInterface)
 src/Application     registr tasků, RegisterSchedule, porty (SchedulerInterface, …)
-src/Infrastructure  Laravel bridge, adaptér Crunz, úložiště mutex (SQLite přes PDO), čtení atributů
+src/Infrastructure  Laravel bridge, adaptér Crunz, úložiště mutexu (SQLite přes PDO), čtení atributů
 app/Tasks           tasky aplikace
 ```
 - Složka `src` je rozdělena podle vrstev. V reálné aplikaci by byla spíše rozdělena podle DDD domén, které by se pak dělily do vrstev. Závislosti vedou jen dovnitř: Infrastructure → Application → Domain.
@@ -22,7 +22,7 @@ app/Tasks           tasky aplikace
 Laravel používá pro mutex cache s TTL 24 h. Spadlý proces tak může zablokovat task až na den a pozdní uvolnění může smazat cizí zámek. Navržený mutex proto:
 - má **token vlastníka**, takže obnovit nebo uvolnit ho může jen ten, kdo ho získal,
 - má **TTL nastavitelné pro každý task** (`lockTtl`): po pádu procesu je task blokovaný jen po tuto dobu,
-- zapisuje do úložiště **jednou atomickou operací**, což ověřuje test, v němž o mutex soupeří 12 procesů,
+- zapisuje do úložiště **podmíněnými atomickými dotazy** bez předchozího čtení, takže mutex získá vždy jen jeden proces. Ověřuje to test, v němž o mutex soupeří 12 procesů,
 - používá **vyměnitelné úložiště** (`LockStoreInterface`). Teď je to SQLite, Redis by byla jedna další třída.
 
 ### Konfigurace
@@ -68,3 +68,9 @@ Lze spustit v Dockeru:
 docker compose up                                      # composer setup, výpis tasků a schedule:work
 docker compose run --rm app ...
 ```
+
+## Limitace
+- Tasky neběží v samostatném procesu, tzn. dlouhé tasky blokují ostatní. Scheduler by proto měl být využíván pouze jako trigger a dlouho trvající tasky by se měly zpracovávat přes frontu.
+- Pokud by tasky měly běžet na pozadí, bylo by třeba vyřešit předávání mutex tokenu nebo by nebyl použit `TaskEventMutex` a mutex by řešil samotný background proces.
+- Protože PHP je jednovláknové, je implementace automatického heartbeatu složitá, a proto je potřeba každému tasku určit rozumné TTL (defaultně 3600 s).
+- Mutex je implementován pouze jako non-blocking (protože plánovač nepotřebuje blokovat)

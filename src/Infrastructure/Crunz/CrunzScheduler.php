@@ -30,9 +30,9 @@ final class CrunzScheduler implements SchedulerInterface
             return;
         }
 
-        // crunz runs shell commands, not PHP callables: each event calls our bin/scheduler next to this class.
+        // crunz runs shell commands, not PHP callables
         $event = $this->schedule
-            ->run(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/bin/scheduler') . ' app:scheduler:invoke ' . escapeshellarg($task->taskClass))
+            ->run(escapeshellarg(PHP_BINARY) . 'here we would decide how to actually invoke the command')
             ->cron($task->cron->expression)
             ->timezone($task->timezone)
             ->description($task->description !== '' ? "{$task->taskClass}: {$task->description}" : $task->taskClass);

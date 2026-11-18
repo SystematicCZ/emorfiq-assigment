@@ -10,7 +10,9 @@ use Psr\Clock\ClockInterface;
 use Random\Randomizer;
 
 // Plain PDO on purpose (no Laravel/Doctrine), so the same store works under crunz.
-// Atomicity: every write is ONE conditional statement on the primary key, so the DB lets exactly one competitor win.
+// Atomicity: no write depends on an earlier read. Each statement is conditional on the primary key, so the DB lets
+// exactly one competitor win. save() is two such statements (insert, else take over); a row released in between
+// makes it report a conflict although the key just became free, which only costs a retry, never a double acquire.
 // Expiry uses the app server's clock: servers sharing the store need NTP-synced clocks.
 // Expired rows never block (save() takes them over); they are only garbage, deleted on a random share of saves.
 final class PdoLockStore implements LockStoreInterface
@@ -67,7 +69,11 @@ final class PdoLockStore implements LockStoreInterface
 
         // Like Symfony's PDO lock store: no cleanup job, the store deletes expired rows on a random share of saves.
         if (new Randomizer()->getFloat(0, 1) < $this->gcProbability) {
-            $this->prune($now);
+            try {
+                $this->prune($now);
+            } catch (\PDOException) {
+                // The lock is already written: a failed cleanup must not turn a successful save into an error.
+            }
         }
     }
 

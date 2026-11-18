@@ -103,7 +103,7 @@ Laravel itself is fine; only the mutex is the problem, and Laravel lets you repl
 How our lock fixes each problem:
 - **Owner token.** Each lock gets a random token, and only its owner can refresh or release it. A late release by a former owner does nothing.
 - **TTL per task** (`lockTtl`, in seconds), sized to the task. A crashed run blocks the task only for that long, not 24 h.
-- **Atomic acquire, including takeover of an expired lock**, done with single SQL statements. This is checked by an integration test where 12 OS processes race for one lock.
+- **Atomic acquire, including takeover of an expired lock**, done with conditional SQL statements and no read-before-write. This is checked by an integration test where 12 OS processes race for one lock.
 - **Durable, pluggable storage** (a DB table, not the cache). Redis would be one more store class.
 - **Stable keys** `task:{TaskClass}`, unaffected by cron changes. One-server slot keys use the full UTC minute (`YmdHi`).
 
@@ -155,19 +155,18 @@ app/Tasks/                  ExampleTask (two schedules)
 **Assumptions about the host.** The host here is a Laravel app, but only one part of the module needs that:
 - `Domain`, `Application`, `Infrastructure\Lock` and `Infrastructure\Scheduler` need only PHP and PSR interfaces.
 - **The Laravel engine needs the Laravel runtime** (container, console, events). That is inherent in using Laravel's scheduler at all.
-- **The crunz engine needs only crunz and a PSR-11 container.** The host provides that container in one file, `bootstrap/scheduler-container.php`, used by the crunz task file and by `Infrastructure/Crunz/bin/scheduler`. Here it returns Laravel's `Application`, which implements PSR-11. A non-Laravel host returns its own container. Nothing in `Infrastructure\Crunz` (including its task file and `bin/scheduler`) imports `Illuminate`.
+- **The crunz engine would need only crunz and a PSR-11 container.** crunz loads its task file in its own process, outside the application, so the host has to hand its container over there. That part is left open: the task file marks the spot with a `Not implemented yet` placeholder. Nothing in `Infrastructure\Crunz` imports `Illuminate`.
 - `Infrastructure/Laravel` is the **Laravel bridge**: everything needed to use the module inside a Laravel host. That covers the composition root (`SchedulerServiceProvider`), the `app:scheduler:run` command and the config wiring, plus the Laravel *engine* (`LaravelScheduler`, the mutexes). A Symfony host would get a sibling `Infrastructure/Symfony` bridge (a bundle wiring the ports, a console command for `runDue()`), the way libraries ship `Bridge/Laravel` next to `Bridge/Symfony`. Nothing existing is rewritten, and `app/` only holds the host's own tasks.
 
 **The Laravel skeleton is reduced to a console app.** Only what the scheduler needs is left:
 
 ```
 app/Tasks/            the application's tasks
-bootstrap/            app.php (exception handling, points Laravel's generated files at var/), providers.php (SchedulerServiceProvider),
-                      scheduler-container.php (the PSR-11 container the crunz path uses)
+bootstrap/            app.php (exception handling, points Laravel's generated files at var/), providers.php (SchedulerServiceProvider)
 config/               database.php (SQLite busy_timeout + WAL) and scheduler.php; since Laravel 11 missing config files fall back to framework defaults
 var/                  not in git; everything generated at runtime: Laravel's storage (app/, framework/, logs/), its bootstrap cache
                       (bootstrap-cache/) and the SQLite file; there are no migrations, because the lock table creates itself on first use
-src/                  Domain, Application, Infrastructure (crunz's task file and bin/scheduler live in Infrastructure/Crunz)
+src/                  Domain, Application, Infrastructure (the crunz sketch, with its task file, lives in Infrastructure/Crunz)
 tests/                unit, integration, feature
 ```
 
@@ -342,30 +341,30 @@ There is one task source, bound as `TaskProviderInterface` (the attribute reader
 
 ## 7. Switching to crunz
 
-The adapter is prepared as **shells**: signatures only, with method bodies that throw `LogicException('Not implemented yet.')`. The exceptions are `CrunzScheduler::schedule()`, which shows how a task is registered with crunz, the crunz task file, and the invoke command with `bin/scheduler`, which need nothing from crunz. Checked against crunz 3.9 with `scheduler.engine` set to `crunz`: the task file builds a real `Crunz\Schedule` through the PSR-11 container file, with one event per schedule running `php src/Infrastructure/Crunz/bin/scheduler app:scheduler:invoke '<TaskClass>'`. crunz isn't installed; it is listed under `suggest` in `composer.json`, together with the `symfony/lock` it brings. The shells were checked against crunz 3.9 and `symfony/lock`: they load and implement the interfaces.
+The crunz adapter is a **sketch, not a working engine**. It shows where each piece would go; most method bodies throw `LogicException('Not implemented yet.')`. crunz isn't installed: it is listed under `suggest` in `composer.json`, together with the `symfony/lock` it brings, and the three files are excluded from PHPStan for that reason.
 
 | File | Role |
 |---|---|
-| `src/Infrastructure/Crunz/CrunzScheduler.php` | `SchedulerInterface` over `Crunz\Schedule`. `schedule()` maps a `TaskDefinition` to `$schedule->run('php …/Crunz/bin/scheduler app:scheduler:invoke <TaskClass>')->cron()->timezone()`. `withoutOverlapping` → `->preventOverlapping(new TaskOverlapStore(…))`. `onOneServer` → `->when(fn () => $this->claimSlot(…))`, because crunz has no one-server feature. `runDue()` runs `vendor/bin/crunz schedule:run`. |
-| `src/Infrastructure/Crunz/Lock/TaskOverlapStore.php` | Symfony `PersistingStoreInterface` over our `LockStoreInterface`, one instance per event, like `TaskEventMutex`. crunz acquires in a skip filter and releases in `after()`/`onError()` in the same process, so the owner token (kept in the Symfony `Key`) makes release owner-safe. Our per-class key and `lockTtl` replace crunz's own key and fixed TTL. |
-| `src/Infrastructure/Crunz/Console/InvokeTaskCommand.php` + `src/Infrastructure/Crunz/bin/scheduler` | `app:scheduler:invoke <TaskClass>`, a plain Symfony Console command over a PSR-11 container: `$container->get($taskClass)()`. crunz runs shell commands, so each event calls `php src/Infrastructure/Crunz/bin/scheduler app:scheduler:invoke …`. An exception exits non-zero, which crunz treats as failure: error callbacks run and the lock is released. A closure (`$schedule->run(fn …)`) would not avoid this: crunz runs closures in its own `closure:run` process without the host container, and only serializable values can be captured. |
-| `bootstrap/scheduler-container.php` | The host's PSR-11 container: the only host-specific piece on the crunz path. |
-| `src/Infrastructure/Crunz/tasks/SchedulerTasks.php` | The crunz task file (`crunz.yml`: `source: src/Infrastructure/Crunz/tasks`, `suffix: Tasks.php`). It gets the container from `bootstrap/scheduler-container.php`, runs `RegisterSchedule` with `CrunzScheduler`, and returns its `Crunz\Schedule`. |
+| `src/Infrastructure/Crunz/CrunzScheduler.php` | `SchedulerInterface` over `Crunz\Schedule`. `schedule()` shows the mapping: `$schedule->run(<shell command>)->cron()->timezone()`, `withoutOverlapping` → `->preventOverlapping(new TaskOverlapStore(…))`, `onOneServer` → `->when(fn () => $this->claimSlot(…))`, because crunz has no one-server feature. The shell command is a placeholder string, and `runDue()` and `claimSlot()` are not implemented. |
+| `src/Infrastructure/Crunz/Lock/TaskOverlapStore.php` | Would be a Symfony `PersistingStoreInterface` over our `LockStoreInterface`, since crunz's `preventOverlapping()` accepts a Symfony Lock store. It holds our per-class key and `lockTtl`; all methods are unimplemented. |
+| `src/Infrastructure/Crunz/tasks/SchedulerTasks.php` | The crunz task file (`crunz.yml`: `source: src/Infrastructure/Crunz/tasks`, `suffix: Tasks.php`). It shows the flow: get the container, run `RegisterSchedule` with `CrunzScheduler`, return its `Crunz\Schedule`. Getting the container is a placeholder. |
 
-In this Laravel host, the provider already has both engines wired, selected by `scheduler.engine`:
+Two things a real implementation has to decide, both left open on purpose:
+- **How a task is invoked.** crunz runs shell commands, not PHP callables, so each event needs a command that boots the application's container, resolves the task class and calls `__invoke()`. In a Laravel host an artisan command would do; a framework-independent version would be a small Symfony Console script over a PSR-11 container. A non-zero exit code is how crunz learns that a task failed.
+- **How the task file gets the container.** crunz loads the task file in its own process, where the application is not booted.
+
+In this Laravel host, the provider already selects the engine by `scheduler.engine`:
 - `laravel` (default): binds `LaravelScheduler` and `LockSchedulingMutex`, and hooks `RegisterSchedule` into Laravel's `Schedule` resolution.
-- `crunz`: binds `CrunzScheduler` and `Crunz\Schedule`. There is no `Schedule` hook, because the crunz task file calls `RegisterSchedule` itself.
+- `crunz`: binds `CrunzScheduler` and `Crunz\Schedule`. There is no `Schedule` hook, because the crunz task file calls `RegisterSchedule` itself. Without the package it fails with "composer require crunzphp/crunz".
 
-Switching, once the crunz classes are finished:
+Switching, once the crunz classes were finished:
 1. `composer require crunzphp/crunz`
 2. add `crunz.yml` (`vendor/bin/crunz publish:config`; `source: src/Infrastructure/Crunz/tasks`, `suffix: Tasks.php`)
 3. set `'engine' => 'crunz'` in `config/scheduler.php`
 
-Apart from that one config value, no PHP file changes, and the crontab line stays `php artisan app:scheduler:run`: `runDue()` now starts crunz.
+The crontab line stays `php artisan app:scheduler:run`: `runDue()` would then start crunz.
 
-Nothing in `Infrastructure\Crunz` (including its task file and `bin/scheduler`) uses `Illuminate` or `Infrastructure\Laravel`.
-
-What is reused without changes:
+What would be reused without changes:
 - `Domain/*` and `Application/*`.
 - `app/Tasks/*`.
 - `Infrastructure/Lock/*` and `Infrastructure/Scheduler/*`.
